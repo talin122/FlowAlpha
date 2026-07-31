@@ -89,6 +89,7 @@ tbody tr:hover { background: #f6f7f9; }
 .verdict.sup { color: #1f7a33; }
 .verdict.ref { color: #a32020; }
 .verdict.non { color: #7a5a00; }
+.verdict.inc { color: #6a4fa3; }
 .limits { background: #fff; border: 1px solid #d8dbe0; border-radius: 6px;
           padding: 0.9rem 1.1rem; }
 .limits li { margin-bottom: 0.55rem; }
@@ -405,21 +406,33 @@ class ReportDocument:
 
 
 def verdict_html(verdict: str) -> str:
-    """Colour-code an experiment verdict without hiding what it says."""
+    """Colour-code an experiment verdict without hiding what it says.
+
+    INCONCLUSIVE gets its own colour rather than sharing one with NOT SUPPORTED. A reader
+    skimming colours must not come away thinking an unresolvable test was a null result.
+    """
     cls = "non"
     if verdict.startswith("SUPPORTED"):
         cls = "sup"
     elif verdict.startswith("REFUTED"):
         cls = "ref"
+    elif verdict.startswith("INCONCLUSIVE"):
+        cls = "inc"
     return f'<span class="verdict {cls}">{esc(verdict)}</span>'
 
 
 def experiments_html(results: Iterable) -> str:
-    """Render declared experiments with their pre-stated direction and verdict."""
+    """Render declared experiments with their pre-stated direction, verdict and power.
+
+    The minimum detectable effect sits in the same table as the observed difference on
+    purpose: the two numbers are only interpretable next to each other. A difference of
+    0.01 against an MDE of 0.03 is not a small effect, it is an unresolved one.
+    """
     blocks = []
     rows = []
     for r in results:
         d = r.to_dict() if hasattr(r, "to_dict") else dict(r)
+        p = d.get("power") or {}
         rows.append(
             {
                 "factor": d["factor"],
@@ -430,10 +443,27 @@ def experiments_html(results: Iterable) -> str:
                 "IC unfavourable": d["ic_unfavourable"],
                 "difference": d["ic_difference"],
                 "t(diff, NW)": d["t_stat_difference"],
+                "MDE(80%)": p.get("mde_at_target_power"),
+                "MDE / uncond IC": p.get("mde_over_unconditional_ic"),
+                "power at ref effect": p.get("power_at_reference_effect"),
                 "n fav": d["n_favourable"],
                 "n unfav": d["n_unfavourable"],
             }
         )
+        power_note = ""
+        if p:
+            power_note = (
+                f'<p class="note">Power: this design detects an effect of '
+                f"{fmt(p.get('mde_at_target_power'), 4)} with "
+                f"{fmt(100 * (p.get('power_target') or 0), 0)}% probability "
+                f"({fmt(p.get('mde_over_unconditional_ic'), 1)}&times; the factor's "
+                f"unconditional IC of {fmt(p.get('unconditional_mean_ic'), 4)}). Against "
+                f"the pre-declared reference effect of "
+                f"{fmt(p.get('reference_effect'), 4)} "
+                f"({fmt(100 * (p.get('reference_effect_fraction') or 0), 0)}% of that IC) "
+                f"it has {fmt(100 * (p.get('power_at_reference_effect') or 0), 1)}% power."
+                "</p>"
+            )
         blocks.append(
             f"<h3>{esc(d['factor'])} conditioned on {esc(d['regime_column'])}</h3>"
             f'<p class="note">{esc(d["rationale"])}</p>'
@@ -441,9 +471,13 @@ def experiments_html(results: Iterable) -> str:
             f"&gt; IC in <code>{esc(d['unfavourable_bucket'])}</code>. "
             f"Verdict: {verdict_html(d['verdict'])} "
             f"(gate |t| &ge; {fmt(d['gate_t_threshold'], 1)}).</p>"
+            + power_note
         )
     table = frame_to_table(
         pl.DataFrame(rows) if rows else pl.DataFrame(schema={"factor": pl.Utf8}),
-        digits={"IC favourable": 4, "IC unfavourable": 4, "difference": 4, "t(diff, NW)": 2},
+        digits={
+            "IC favourable": 4, "IC unfavourable": 4, "difference": 4, "t(diff, NW)": 2,
+            "MDE(80%)": 4, "MDE / uncond IC": 1, "power at ref effect": 3,
+        },
     )
     return table + "".join(blocks)

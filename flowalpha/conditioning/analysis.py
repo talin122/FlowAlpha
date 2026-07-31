@@ -28,6 +28,7 @@ from typing import Mapping, Sequence
 
 import numpy as np
 import polars as pl
+from scipy.stats import norm as _norm
 
 from ..config import Config
 from ..validation.ic import newey_west_se, rank_ic, summarize_ic
@@ -163,6 +164,161 @@ class ConditioningExperiment:
         return f"{self.factor}|{self.regime_column}|{self.favourable}-vs-{self.unfavourable}"
 
 
+# ---------------------------------------------------------------------------
+# Power
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class PowerAnalysis:
+    """How large a conditioning effect this design could actually have caught.
+
+    **Why this is part of the result and not a footnote.** "The difference is not
+    distinguishable from zero" has two very different causes: there is no effect, or
+    the test cannot see one. Only the first is a finding. A test with 20% power that
+    reports nothing has learned nothing, and calling that "no conditional structure"
+    lets an absence of evidence read as evidence of absence -- the same class of error
+    as letting generated numbers be described as real.
+
+    **Calibrated to the gate the pipeline actually uses.** :attr:`ExperimentResult.supported`
+    requires ``t >= gate_t_threshold`` with the sign declared in advance, so the honest
+    calculation is one-sided against *that* gate, not against a conventional 1.96.
+    Under a true effect ``delta`` the statistic is approximately ``Normal(delta / se, 1)``,
+    so the probability of declaring support is ``Phi(delta / se - gate)``. Inverting
+    gives the effect size detected with any chosen probability.
+
+    **Adequacy is judged against a declared effect, never the observed one.** Power
+    evaluated at the effect that happened to be observed is a strictly monotone function
+    of the test statistic, so it carries no information the t-stat did not already carry,
+    and using it to decide adequacy would make "adequately powered null" unreachable by
+    construction. Adequacy is therefore assessed against :attr:`reference_effect` --
+    ``reference_effect_fraction`` of the factor's own unconditional IC, declared in
+    config alongside the hypothesis direction. That makes it a property of the *design*
+    (sample size, autocorrelation, regime balance), which is what the question
+    "could this study have seen it?" is actually about.
+
+    Attributes
+    ----------
+    se_difference:
+        Newey-West standard error of the between-bucket IC difference. Inherits the
+        autocorrelation adjustment, so overlapping labels do not inflate the apparent
+        precision -- and therefore do not understate the MDE.
+    reference_effect:
+        The effect size worth detecting: ``reference_effect_fraction * |unconditional_ic|``.
+        A regime effect smaller than a fraction of the factor's whole average IC is
+        unlikely to survive the extra turnover the overlay creates, so it is not the
+        thing the study is trying to find.
+    detectable_50:
+        Effect size at which support is a coin flip (``gate * se``). Below this the test
+        is more likely to miss a real effect than to find it.
+    mde:
+        Minimum effect reliably detected: ``(gate + z_target) * se``.
+    power_at_reference:
+        Probability the design would declare support if the true effect equalled
+        :attr:`reference_effect`. This is the number that decides :attr:`adequate`.
+    power_at_observed:
+        **Descriptive only.** Probability of declaring support had the true effect been
+        as large as the observed difference, computed on ``abs(difference)`` so it speaks
+        to magnitude and stays interpretable when the sign came out unpredicted. Monotone
+        in ``t``, so it adds no independent evidence -- reported because it answers
+        "was the difference we saw even resolvable here?", not used for any decision.
+    mde_over_unconditional_ic:
+        :attr:`mde` as a multiple of the factor's own unconditional mean IC. Above 1
+        means the smallest reliably detectable regime effect exceeds the entire average
+        effect being conditioned, which is not a plausible size for a real one.
+    adequate:
+        Whether :attr:`power_at_reference` clears ``power_target``. ``False`` whenever
+        power is unknown: an unquantified design must not be reported as a powered one.
+    """
+
+    se_difference: float
+    gate_t_threshold: float
+    power_target: float
+    reference_effect_fraction: float
+    reference_effect: float
+    detectable_50: float
+    mde: float
+    power_at_reference: float
+    observed_difference: float
+    power_at_observed: float
+    unconditional_ic: float
+    mde_over_unconditional_ic: float
+    adequate: bool
+
+    def to_dict(self) -> dict:
+        return {
+            "se_difference": self.se_difference,
+            "gate_t_threshold": self.gate_t_threshold,
+            "power_target": self.power_target,
+            "reference_effect_fraction": self.reference_effect_fraction,
+            "reference_effect": self.reference_effect,
+            "detectable_at_50pct_power": self.detectable_50,
+            "mde_at_target_power": self.mde,
+            "power_at_reference_effect": self.power_at_reference,
+            "observed_difference_abs": self.observed_difference,
+            "power_at_observed_effect_descriptive_only": self.power_at_observed,
+            "unconditional_mean_ic": self.unconditional_ic,
+            "mde_over_unconditional_ic": self.mde_over_unconditional_ic,
+            "adequately_powered": self.adequate,
+        }
+
+
+def power_analysis(
+    *,
+    difference: float,
+    se_difference: float,
+    gate_t_threshold: float,
+    unconditional_ic: float,
+    power_target: float = 0.80,
+    reference_effect_fraction: float = 0.5,
+) -> PowerAnalysis:
+    """Minimum detectable effect and design power for one declared experiment.
+
+    See :class:`PowerAnalysis` for the derivation and for why adequacy is judged against
+    a declared reference effect rather than the observed one. A non-positive or
+    non-finite ``se_difference``, or an unusable unconditional IC, yields NaN power with
+    ``adequate=False``: "power unknown" and "power adequate" must never render the same.
+    """
+    gate = float(gate_t_threshold)
+    target = float(power_target)
+    fraction = float(reference_effect_fraction)
+    se = float(se_difference)
+    observed = abs(float(difference)) if np.isfinite(difference) else float("nan")
+    uncond = float(unconditional_ic)
+    denom = abs(uncond)
+    reference = fraction * denom if np.isfinite(denom) else float("nan")
+
+    def _power(effect: float) -> float:
+        if not (np.isfinite(effect) and np.isfinite(se) and se > 0.0):
+            return float("nan")
+        return float(_norm.cdf(effect / se - gate))
+
+    if not (np.isfinite(se) and se > 0.0):
+        return PowerAnalysis(
+            se_difference=float("nan"), gate_t_threshold=gate, power_target=target,
+            reference_effect_fraction=fraction, reference_effect=reference,
+            detectable_50=float("nan"), mde=float("nan"),
+            power_at_reference=float("nan"), observed_difference=observed,
+            power_at_observed=float("nan"), unconditional_ic=uncond,
+            mde_over_unconditional_ic=float("nan"), adequate=False,
+        )
+
+    z_target = float(_norm.ppf(target))
+    mde = (gate + z_target) * se
+    power_ref = _power(reference)
+    return PowerAnalysis(
+        se_difference=se, gate_t_threshold=gate, power_target=target,
+        reference_effect_fraction=fraction, reference_effect=reference,
+        detectable_50=gate * se, mde=mde,
+        power_at_reference=power_ref,
+        observed_difference=observed, power_at_observed=_power(observed),
+        unconditional_ic=uncond,
+        mde_over_unconditional_ic=(
+            mde / denom if np.isfinite(denom) and denom > 0.0 else float("inf")
+        ),
+        adequate=bool(np.isfinite(power_ref) and power_ref >= target),
+    )
+
+
 @dataclass
 class ExperimentResult:
     """Outcome of one declared experiment."""
@@ -179,16 +335,41 @@ class ExperimentResult:
     supported: bool
     gate_t_threshold: float
     per_bucket: list[ConditionalIC] = field(default_factory=list)
+    #: Present whenever an IC series existed; ``None`` only when the test never ran.
+    power: PowerAnalysis | None = None
 
     @property
     def verdict(self) -> str:
+        """Categorical outcome.
+
+        A null result is split by power. A design that could not have seen an effect of
+        the size observed reports INCONCLUSIVE, because "we found nothing" is only a
+        finding when the test was capable of finding something.
+        """
         if self.supported:
             return "SUPPORTED"
         if not np.isfinite(self.t_stat):
             return "INCONCLUSIVE (insufficient data)"
         if self.difference < 0 and abs(self.t_stat) >= self.gate_t_threshold:
             return "REFUTED (difference significant in the OPPOSITE direction)"
-        return "NOT SUPPORTED (difference not distinguishable from zero)"
+        if self.power is not None and not self.power.adequate:
+            p = self.power
+            if not np.isfinite(p.power_at_reference):
+                return "INCONCLUSIVE (test power could not be quantified)"
+            return (
+                f"INCONCLUSIVE (underpowered: {p.power_target:.0%} power needs "
+                f"|difference| >= {p.mde:.5f} = "
+                f"{p.mde_over_unconditional_ic:.1f}x the factor's unconditional IC, but "
+                f"only {p.power_at_reference:.0%} power against the declared "
+                f"{p.reference_effect_fraction:.0%}-of-IC effect of {p.reference_effect:.5f})"
+            )
+        return (
+            "NOT SUPPORTED (difference not distinguishable from zero; design had "
+            f"{self.power.power_at_reference:.0%} power against the declared reference "
+            f"effect of {self.power.reference_effect:.5f})"
+            if self.power is not None
+            else "NOT SUPPORTED (difference not distinguishable from zero)"
+        )
 
     def to_dict(self) -> dict:
         return {
@@ -208,6 +389,7 @@ class ExperimentResult:
             "gate_t_threshold": self.gate_t_threshold,
             "supported": self.supported,
             "verdict": self.verdict,
+            "power": self.power.to_dict() if self.power is not None else None,
         }
 
 
@@ -231,6 +413,8 @@ def run_experiment(
     gate_t_threshold: float = 1.5,
     min_names: int = 10,
     min_dates: int = 30,
+    power_target: float = 0.80,
+    reference_effect_fraction: float = 0.5,
 ) -> ExperimentResult:
     """Evaluate one declared hypothesis.
 
@@ -238,6 +422,10 @@ def run_experiment(
     on each bucket, combined as independent samples. The autocorrelation adjustment
     matters here as much as anywhere: overlapping labels make consecutive daily ICs
     correlated, and the unadjusted difference test would be badly over-confident.
+
+    Every result carries a :class:`PowerAnalysis`, so a null verdict is always
+    accompanied by the effect size the test was capable of detecting. Without it a
+    quiet test and a genuinely absent effect are indistinguishable in the output.
     """
     series = rank_ic(panel, fwd, horizon, min_names=min_names)
     per_bucket = conditional_ic(
@@ -258,19 +446,34 @@ def run_experiment(
 
     diff = mean_fav - mean_unf
     if np.isfinite(se_fav) and np.isfinite(se_unf) and (se_fav > 0 or se_unf > 0):
-        t_stat = diff / np.sqrt(se_fav ** 2 + se_unf ** 2)
+        se_diff = float(np.sqrt(se_fav ** 2 + se_unf ** 2))
+        t_stat = diff / se_diff
     else:
+        se_diff = float("nan")
         t_stat = float("nan")
     enough = fav.size >= min_dates and unf.size >= min_dates
     supported = bool(
         enough and np.isfinite(t_stat) and diff > 0 and t_stat >= gate_t_threshold
     )
+
+    # The unconditional IC is the yardstick the MDE is expressed against, so it is taken
+    # from the same series the buckets partition rather than recomputed.
+    all_ic = np.asarray(series["ic"].to_list(), dtype=float)
+    all_ic = all_ic[np.isfinite(all_ic)]
+    uncond = float(all_ic.mean()) if all_ic.size else float("nan")
+
     return ExperimentResult(
         experiment=experiment, horizon=horizon,
         ic_favourable=mean_fav, ic_unfavourable=mean_unf,
         n_favourable=int(fav.size), n_unfavourable=int(unf.size),
         difference=float(diff), t_stat=float(t_stat), supported=supported,
         gate_t_threshold=gate_t_threshold, per_bucket=per_bucket,
+        power=power_analysis(
+            difference=float(diff), se_difference=se_diff,
+            gate_t_threshold=gate_t_threshold, unconditional_ic=uncond,
+            power_target=power_target,
+            reference_effect_fraction=reference_effect_fraction,
+        ),
     )
 
 

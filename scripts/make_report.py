@@ -86,10 +86,28 @@ def main(argv: list[str] | None = None) -> int:
     # --- headline ---------------------------------------------------------
     headline_bits = []
     if conditioning:
+        n_exp = conditioning["n_experiments"]
         headline_bits.append(
-            f"{conditioning['n_supported']} of {conditioning['n_experiments']} declared "
+            f"{conditioning['n_supported']} of {n_exp} declared "
             f"conditioning hypotheses were supported at |t| >= {conditioning['gate_t_threshold']}."
         )
+        # The support count alone would let an underpowered sample read as evidence that
+        # conditioning does not work. These two counts license different claims and are
+        # therefore always stated together.
+        n_inc = conditioning.get("n_inconclusive_underpowered")
+        n_null = conditioning.get("n_adequately_powered_nulls")
+        if n_inc is not None and n_null is not None:
+            headline_bits.append(
+                f"Of the non-supported hypotheses, {n_null} of {n_exp} are adequately "
+                f"powered nulls (evidence against a conditioning effect) and {n_inc} of "
+                f"{n_exp} are INCONCLUSIVE -- the sample could not have detected the "
+                "effect they were declared to look for."
+            )
+            if n_inc and not conditioning["n_supported"]:
+                headline_bits.append(
+                    "This study therefore does NOT establish that flow conditioning "
+                    "fails. It establishes that this sample cannot resolve the question."
+                )
         headline_bits.append(
             f"{conditioning['n_conditional_beats_unconditional_fixed_costs']} of "
             f"{len(conditioning['strategies'])} conditional strategies beat their "

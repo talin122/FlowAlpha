@@ -74,6 +74,15 @@ conditioning:
   n_buckets: 3
   expanding_min_obs: 252
   shock_percentile: 0.95
+  # Power bar a null verdict must clear before it is reported as a finding rather than
+  # as INCONCLUSIVE. A test that could not have detected the effect it was looking for
+  # has not produced evidence of absence.
+  power_target: 0.80
+  # Size of conditioning effect worth detecting, as a fraction of the factor's own
+  # unconditional IC. Declared here, in advance, for the same reason the hypothesis
+  # DIRECTION is: power measured against whatever effect happened to be observed is just
+  # the t-statistic rewritten, and proves nothing about the design.
+  reference_effect_fraction: 0.5
 
 backtest:
   rebalance: daily

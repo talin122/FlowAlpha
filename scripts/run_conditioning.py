@@ -6,7 +6,7 @@ This is the study. Three outputs:
 1. A conditional IC table: every factor's IC within every regime bucket.
 2. The **declared** experiments -- momentum on FII flow, reversal on retail extremes --
    with the direction stated in advance and a verdict of SUPPORTED / NOT SUPPORTED /
-   REFUTED.
+   INCONCLUSIVE / REFUTED, each with the minimum effect the test could have detected.
 3. A conditional strategy per supported experiment: trade the factor only in its
    favourable regime, flat otherwise, backtested against the unconditional version
    **after costs**.
@@ -14,6 +14,11 @@ This is the study. Three outputs:
 A conditional strategy that does not beat its unconditional counterpart after costs is
 reported as not beating it. That is the correct output of this pipeline, not a failure of
 it.
+
+NOT SUPPORTED and INCONCLUSIVE are counted separately, because they license different
+claims. The first is evidence against a conditioning effect. The second says only that
+this sample cannot resolve the question, and it would be a misreport to fold it into the
+first -- the same error as describing an unavailable series as a zero.
 """
 
 from __future__ import annotations
@@ -89,6 +94,8 @@ def main(argv: list[str] | None = None) -> int:
     say("  directions are stated in advance; a reversed result is a refutation, not a finding")
 
     gate = float(cfg.get("signals.regime_overlay.gate_t_threshold", 1.5))
+    power_target = float(cfg.get("conditioning.power_target", 0.80))
+    ref_fraction = float(cfg.get("conditioning.reference_effect_fraction", 0.5))
     experiment_results = []
     strategy_results = []
 
@@ -100,7 +107,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         result = run_experiment(
             concrete, pipe.panels[factor_name], pipe.fwd, horizon, regimes,
-            gate_t_threshold=gate,
+            gate_t_threshold=gate, power_target=power_target,
+            reference_effect_fraction=ref_fraction,
         )
         experiment_results.append(result.to_dict())
         say("")
@@ -109,6 +117,19 @@ def main(argv: list[str] | None = None) -> int:
             f"vs IC[{exp.unfavourable}]={result.ic_unfavourable:+.5f} (n={result.n_unfavourable})")
         say(f"    difference={result.difference:+.5f}  t(NW)={result.t_stat:+.2f}  "
             f"-> {result.verdict}")
+        if result.power is not None:
+            p = result.power
+            say(f"    power: se(diff)={p.se_difference:.5f}  "
+                f"coin-flip at |diff|>={p.detectable_50:.5f}  "
+                f"MDE({p.power_target:.0%})={p.mde:.5f} "
+                f"= {p.mde_over_unconditional_ic:.1f}x unconditional IC "
+                f"({p.unconditional_ic:+.5f})")
+            say(f"           declared reference effect ({p.reference_effect_fraction:.0%} "
+                f"of unconditional IC) = {p.reference_effect:.5f} -> power "
+                f"{p.power_at_reference:.1%} "
+                f"[{'adequate' if p.adequate else 'INADEQUATE'}]")
+            say(f"           (descriptive) power at the observed difference: "
+                f"{p.power_at_observed:.1%}")
 
         # The conditional strategy is evaluated regardless of the verdict, so the
         # after-cost comparison is available even when the IC difference is weak.
@@ -172,9 +193,22 @@ def main(argv: list[str] | None = None) -> int:
     pipe.registry.save()
     n_supported = sum(1 for r in experiment_results if r["supported"])
     n_beat = sum(1 for s in strategy_results if s["beats_unconditional_fixed_costs_only"])
+    # A null split by power. Counting these together would let "we could not tell" be
+    # read as "there is nothing there".
+    n_inconclusive = sum(1 for r in experiment_results if r["verdict"].startswith("INCONCLUSIVE"))
+    n_powered_null = sum(
+        1 for r in experiment_results if r["verdict"].startswith("NOT SUPPORTED")
+    )
     say("")
     say(f"VERDICT: {n_supported}/{len(experiment_results)} declared hypotheses supported "
         f"at |t| >= {gate}")
+    say(f"         {n_powered_null}/{len(experiment_results)} adequately-powered nulls "
+        f"(evidence against a conditioning effect)")
+    say(f"         {n_inconclusive}/{len(experiment_results)} INCONCLUSIVE -- the design "
+        f"could not detect an effect of the size observed")
+    if n_inconclusive and not n_supported:
+        say("         => this pipeline does NOT establish that conditioning fails. It "
+            "establishes that this sample cannot resolve the question.")
     say(f"         {n_beat}/{len(strategy_results)} conditional strategies beat their "
         f"unconditional counterpart on fixed-cost-only net Sharpe")
     say(f"trial registry: {pipe.registry.summary()}")
@@ -183,11 +217,14 @@ def main(argv: list[str] | None = None) -> int:
         "provenance_label": prov.label(),
         "horizon": horizon,
         "gate_t_threshold": gate,
+        "power_target": power_target,
         "regime_coverage": regimes.summary(),
         "conditional_ic": cond.to_dicts(),
         "experiments": experiment_results,
         "strategies": strategy_results,
         "n_supported": n_supported,
+        "n_adequately_powered_nulls": n_powered_null,
+        "n_inconclusive_underpowered": n_inconclusive,
         "n_experiments": len(experiment_results),
         "n_conditional_beats_unconditional_fixed_costs": n_beat,
         "trial_registry": {

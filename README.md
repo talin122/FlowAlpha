@@ -8,7 +8,12 @@ This is quantitative research code whose output could inform real capital alloca
 Correctness and honesty about data provenance matter more than features or speed. A result
 that looks good because of a subtle look-ahead bug is worse than no result.
 
-**The headline result on real data is negative.** See [Results](#results).
+**The headline result on real data is inconclusive, and that is a finding about the design
+rather than about the market.** No declared hypothesis is supported, but none of the three
+tests had the power to detect the effect it was looking for: the smallest difference the
+momentum test could reliably resolve is 2.1× momentum's entire unconditional IC. A
+market-wide time-series regime test on 6½ years of NSE participant-flow data cannot answer
+this question at any threshold. See [Results](#results).
 
 ---
 
@@ -257,37 +262,67 @@ compensation for capacity you do not have. `reversal_5d` has the best IC in the 
 the worst net Sharpe, because 80× annual turnover at 17.5 bps round-trip plus impact
 consumes it entirely.
 
-### The conditioning result — negative
+### The conditioning result — inconclusive, not negative
 
 The factor→regime map is **declared in `config.yaml`** and the expected direction is stated
 before the test, so a reversed result is a refutation rather than a finding with the sign
 flipped.
 
-| hypothesis | IC favourable | IC unfavourable | difference | t | verdict |
-|---|---|---|---|---|---|
-| momentum, `fii_regime` high vs low | +0.0132 | +0.0255 | **−0.0123** | −0.80 | NOT SUPPORTED |
-| `reversal_5d`, `retail_extreme` extreme vs mid | +0.0319 | +0.0233 | +0.0087 | +0.88 | NOT SUPPORTED |
-| `reversal_21d`, `retail_extreme` extreme vs mid | +0.0091 | −0.0027 | +0.0117 | +1.14 | NOT SUPPORTED |
+| hypothesis | IC fav | IC unfav | difference | t | MDE(80%) | ×uncond IC | power at ref | verdict |
+|---|---|---|---|---|---|---|---|---|
+| momentum, `fii_regime` high vs low | +0.0132 | +0.0255 | **−0.0123** | −0.81 | 0.0357 | 2.1× | 17.5% | INCONCLUSIVE |
+| `reversal_5d`, `retail_extreme` extreme vs mid | +0.0319 | +0.0233 | +0.0086 | +0.87 | 0.0231 | 0.8× | 47.0% | INCONCLUSIVE |
+| `reversal_21d`, `retail_extreme` extreme vs mid | +0.0091 | −0.0027 | +0.0117 | +1.14 | 0.0241 | 2.4× | 15.6% | INCONCLUSIVE |
 
-**0 of 3 declared hypotheses supported at |t| ≥ 1.5. 0 of 3 conditional strategies beat
-their unconditional counterpart on capacity-independent net Sharpe.**
+**0 of 3 declared hypotheses supported at |t| ≥ 1.5. 0 of 3 are adequately powered nulls.
+3 of 3 are inconclusive. 0 of 3 conditional strategies beat their unconditional counterpart
+on capacity-independent net Sharpe.**
+
+**This study does not establish that flow conditioning fails — it establishes that this
+sample cannot resolve the question.** Every observed difference is well inside the noise
+band. The smallest effect the momentum test could reliably detect is 0.0357, which is
+**2.1× momentum's entire unconditional IC**; the reversal_21d test needs 2.4×. An effect
+that large is not a plausible size for a real one, so those two hypotheses are not merely
+unproven here, they are untestable at this sample size.
+
+Power is measured against a **pre-declared** reference effect — half the factor's own
+unconditional IC, set in `conditioning.reference_effect_fraction`. That matters: power
+evaluated at whatever effect happened to be observed is a monotone function of the t-stat,
+carries no independent information, and would make "adequately powered null" unreachable by
+construction. See `tests/test_power.py::test_adequacy_ignores_the_observed_difference_entirely`.
+
+Sample size needed for 80% power against that reference effect, from the observed
+Newey–West standard errors (`se ∝ n^-1/2`):
+
+| hypothesis | sessions used | needed | multiple | ≈ years |
+|---|---|---|---|---|
+| momentum × `fii_regime` | 1,181 | 20,218 | 17.1× | 81 |
+| `reversal_21d` × `retail_extreme` | 1,518 | 35,084 | 23.1× | 140 |
+| `reversal_5d` × `retail_extreme` | 1,518 | 4,097 | 2.7× | 16 |
+
+Only `reversal_5d` is within reach of any feasible data-collection effort, and 16 years of
+daily participant-flow data does not exist — NSE's file begins in 2019. **A market-wide
+time-series regime test cannot answer this question.** The escape route is cross-sectional:
+a per-stock retail measure (bhavcopy `DELIV_PER`) turns ~1,500 regime observations into
+~425 names × ~1,850 sessions of independent variation, testing the same hypothesis with
+orders of magnitude more information. See [Known limitations](#known-limitations).
 
 Momentum's conditional IC is *directionally opposite* to the hypothesis — higher when FIIs
-are in their selling tercile (+0.026) than their buying tercile (+0.013) — though not
-significantly so. Both reversal hypotheses point the right way and neither is
-distinguishable from zero.
+are in their selling tercile (+0.026) than their buying tercile (+0.013) — but at 17.5%
+power that sign carries no weight.
 
 The regime overlay does improve the composite's capacity-independent net Sharpe (+0.11 vs
 −0.81), but it also cuts turnover from 35× to 23× per year, so that improvement should be
 read as substantially a **cost** effect rather than a signal effect. It is not a positive
 result for the hypothesis.
 
-**A negative result honestly reported is the correct output of this pipeline.** The
+**An inconclusive result honestly reported is the correct output of this pipeline.** The
 machinery is not the reason: run against `flowalpha/data/synthetic.py`, whose DGP embeds
-both conditional effects, `tests/test_baseline_integration.py` shows the same code recovers
-them — momentum weaker in the FII-selling tercile, reversal stronger when retail is
-extreme, both at the declared direction and threshold. So failing to find them in real data
-is informative rather than merely unexplained.
+both conditional effects at a magnitude this design *can* resolve,
+`tests/test_baseline_integration.py` shows the same code recovers them — momentum weaker in
+the FII-selling tercile, reversal stronger when retail is extreme, both at the declared
+direction and threshold. So the real-data result is a statement about the sample, not about
+the code.
 
 ### Regime coverage
 
@@ -453,6 +488,14 @@ section:
   mild classification look-ahead.
 * **IC t-statistics are raw**, adjusted only for autocorrelation. Only Sharpe ratios are
   deflated.
+* **The conditioning test is underpowered by construction, not by accident.** A regime
+  defined on a market-wide daily series yields one observation per session, so the effective
+  sample is ~1,500 regardless of how many names are in the panel. The two hypotheses whose
+  MDE exceeds their own unconditional IC (momentum, `reversal_21d`) cannot be settled by
+  collecting more of the same data — they need a **cross-sectional** conditioning variable.
+  Per-stock delivery percentage (NSE bhavcopy `DELIV_PER`, currently unavailable on the
+  Yahoo path) is the obvious candidate and would raise the effective sample by orders of
+  magnitude. Until then, treat the flow-conditioning question as open.
 * **The alpha miner is a multiple-testing machine.** Every candidate it keeps registers as a
   trial. `--policy random` runs the declared control: if the GRU's best formulas are no
   better than uniform sampling over the same grammar, the policy is not contributing.
