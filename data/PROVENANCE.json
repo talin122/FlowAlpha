@@ -1,0 +1,64 @@
+{
+  "updated_at": "2026-07-30T17:46:32.214429+00:00",
+  "label": "LIVE DATA (PARTIAL: DELIVERY_PCT, SHARES_OUTSTANDING UNAVAILABLE)",
+  "datasets": {
+    "delivery_pct": {
+      "status": "unavailable",
+      "source": "Yahoo Finance via yfinance (auto_adjust=False, group_by=ticker)",
+      "note": "Yahoo publishes no delivery percentage. The delivery factor computes to an empty panel and is skipped with a warning rather than counted as a trial."
+    },
+    "fii_dii_cash": {
+      "status": "real",
+      "source": "https://www.nseindia.com/api/fiidiiTradeReact",
+      "note": "1 sessions accumulated (2026-07-30..2026-07-30). NSE api/fiidiiTradeReact is CURRENT-DAY ONLY. This series is accumulated by running scripts/download_flows.py daily, so its span reflects how long the script has been run, not data availability. Units: Rs crores (cash market), unlike flows_daily which is in net futures contracts."
+    },
+    "flow_features": {
+      "status": "real",
+      "source": "derived from flows_daily + participant_flows",
+      "note": "DERIVED, read at store lag 0 because construction already shifts the underlying flow by one session. Expanding-window terciles and percentiles only; no full-sample quantiles."
+    },
+    "flows_daily": {
+      "status": "real",
+      "source": "https://nsearchives.nseindia.com/content/nsccl/fao_participant_vol_DDMMYYYY.csv",
+      "note": "1871 sessions (2019-01-01..2026-07-30), derived from the cached fao_participant_vol archive. Units: NET FUTURES CONTRACTS, not cash rupees."
+    },
+    "participant_flows": {
+      "status": "real",
+      "source": "https://nsearchives.nseindia.com/content/nsccl/fao_participant_vol_DDMMYYYY.csv",
+      "note": "1871 sessions (2019-01-01..2026-07-30), derived from the cached fao_participant_vol archive. Units: NET FUTURES CONTRACTS, not cash rupees. Categories: Client (retail proxy), DII, FII, Pro."
+    },
+    "prices": {
+      "status": "real",
+      "source": "Yahoo Finance via yfinance (auto_adjust=False, group_by=ticker)",
+      "note": "500 symbols, 1875 sessions, 2019-01-01..2026-07-30. adj_factor = adj_close/close applied to open/high/low; volume left raw so turnover = close*volume is split-invariant."
+    },
+    "sectors": {
+      "status": "real",
+      "source": "https://nsearchives.nseindia.com/content/indices/ind_nifty500list.csv",
+      "note": "Industry classification from the same constituent file. This is a CURRENT snapshot, not point-in-time: a name reclassified since listing carries its present industry for its whole history."
+    },
+    "shares_outstanding": {
+      "status": "unavailable",
+      "source": "Yahoo Finance via yfinance (auto_adjust=False, group_by=ticker)",
+      "note": "Yahoo publishes no share count. Written as 1.0, which degrades the size factor to a log-PRICE proxy (named size_logprice_proxy), not log market cap."
+    },
+    "trading_calendar": {
+      "status": "real",
+      "source": "derived from observed price dates",
+      "note": "1875 sessions derived from the price panel; weekdays in range with no trading (106) are treated as holidays."
+    },
+    "universe": {
+      "status": "real",
+      "source": "https://nsearchives.nseindia.com/content/indices/ind_nifty500list.csv",
+      "note": "NSE published NIFTY500 constituent list, 500 EQ symbols, CURRENT snapshot only"
+    }
+  },
+  "caveats": [
+    "Universe survivorship bias: NSE publishes only the CURRENT NIFTY 500 constituent list. Applied to a historical window this omits names that left the index and includes names that joined, for their whole history. Combined with post-2019 listings having no early history, per-rebalance cardinality GROWS over the sample. Returns are therefore biased upward by an unknown amount.",
+    "Sector labels are a current snapshot, so sector-neutralisation and sector caps inherit a mild classification look-ahead. factors.sector_neutralize is false by default for this reason.",
+    "Dividend adjustment is approximate: adj_factor = adj_close / close from Yahoo is applied to open/high/low. This is a proportional approximation, not a reconstruction of each corporate action.",
+    "Retail participation is proxied by the 'Client' participant category in NSE's F&O file. Client includes HNIs and proprietary-adjacent non-institutional accounts, so it is a proxy for retail, not a measurement of it.",
+    "Flow units: daily cash-market FII/DII history is not freely obtainable. The flows_daily and participant_flows series are built from NSE's participant-wise F&O file and are measured in NET FUTURES CONTRACTS (index + stock futures, long minus short; option legs excluded), not cash rupees. Regime features are quantile- and sign-based so bucketing is unaffected, but 'FII net' here means net futures positioning.",
+    "The cash FII/DII series (fii_dii_cash) is short because the source API is current-day only. Regime construction therefore uses the F&O participant series, not the cash series."
+  ]
+}

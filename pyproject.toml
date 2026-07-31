@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flowalpha"
+version = "0.1.0"
+description = "Is Indian equity factor performance conditional on institutional order flow?"
+requires-python = ">=3.11"
+dependencies = [
+    "polars>=1.0",
+    "numpy",
+    "scipy",
+    "statsmodels",
+    "scikit-learn",
+    "matplotlib",
+    "pyarrow",
+    "pyyaml",
+    "requests",
+    # Needed by the price downloader only. yfinance returns pandas frames; we
+    # convert to polars at the boundary so nothing downstream sees pandas.
+    "yfinance",
+    "pandas",
+]
+
+[project.optional-dependencies]
+mining = ["torch>=2.1"]
+test = ["pytest", "pytest-cov"]
+# The NSE FII F&O stats file is a genuine legacy .xls (BIFF), not an xlsx.
+flows_xls = ["xlrd"]
+
+[tool.setuptools.packages.find]
+include = ["flowalpha*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]

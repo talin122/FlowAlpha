@@ -1,0 +1,130 @@
+# FlowAlpha -- single source of truth.
+#
+# Nothing in the codebase may hardcode a parameter that belongs here. If you find
+# yourself typing a number into a module, it belongs in this file instead.
+
+seed: 20240101
+
+paths:
+  raw: data/raw
+  processed: data/processed
+  reference: data/reference
+  results: results
+
+universe:
+  name: NIFTY500
+  size: 500
+  # Sanity band for per-rebalance cardinality. Deliberately NOT centred on `size`:
+  # NSE publishes only the *current* constituent list, so applying it historically
+  # yields a membership count that GROWS as post-2019 listings accumulate history
+  # (~365 in 2019 rising to ~500 by 2026). A band centred on 500 could never pass.
+  cardinality_band: [350, 600]
+  reconstruction:
+    method: mktcap_rank
+    rebalance_freq: quarterly
+    min_history_days: 60
+
+dates:
+  start: "2019-01-01"
+  end: "2026-07-30"
+  timezone: "Asia/Kolkata"
+
+# Availability lags in TRADING days unless *_calendar_days. ENFORCED by the store
+# (flowalpha/data/store.py), not merely assumed by research code.
+availability:
+  prices:            {lag_days: 0}
+  flows_daily:       {lag_days: 1}
+  participant_flows: {lag_days: 1}
+  fii_dii_cash:      {lag_days: 1}
+  bulk_deals:        {lag_days: 1}
+  block_deals:       {lag_days: 1}
+  shareholding:      {lag_calendar_days: 21}
+
+download:
+  request_delay_sec: 1.5
+  max_retries: 5
+  backoff_base_sec: 2.0
+  timeout_sec: 20
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36"
+  # Participant-flow archive fetch: ~1870 sessions. Shared politeness delay across
+  # threads keeps us well inside what the archive host tolerates.
+  flow_workers: 6
+  flow_delay_sec: 0.35
+
+factors:
+  winsorize: [0.01, 0.99]
+  sector_neutralize: false
+  momentum:   {lookback: 252, skip: 21}
+  reversal:   {windows: [5, 21]}
+  volatility: {window: 60}
+  liquidity:  {window: 21}
+  delivery:   {window: 21}
+  volume_trend: {window: 21}
+
+forward_returns:
+  horizons: [1, 5, 21]
+
+validation:
+  purged_kfold: {n_splits: 6, embargo_days: 5}
+  deflated_sharpe: {benchmark_sr: 0.0}
+  pbo: {n_partitions: 16}
+
+conditioning:
+  regime_window: 21
+  n_buckets: 3
+  expanding_min_obs: 252
+  shock_percentile: 0.95
+
+backtest:
+  rebalance: daily
+  holding_days: 5
+  gross_leverage: 1.0
+  costs:
+    stt_delivery: 0.001          # 0.10% sell side, delivery
+    stt_intraday_sell: 0.00025
+    stamp_duty_buy: 0.00015
+    brokerage_exchange: 0.0003   # blended brokerage + exchange + SEBI + GST
+    impact_coef: 0.1             # square-root impact
+    adv_window: 21
+
+signals:
+  composite:
+    scheme: ic_ir                # equal | ic_mean | ic_ir
+    ic_window: 252               # trailing, POINT-IN-TIME
+    ic_horizon: 5
+    min_coverage: 5
+    drop_negative_ic: true
+  regime_overlay:
+    enabled: true
+    gate_t_threshold: 1.5
+    factor_regime_map:           # hypothesis-driven, declared NOT data-mined
+      momentum: fii_regime
+      reversal: retail_extreme
+  construction:
+    method: quintile_ls
+    long_only: false
+    top_n: 50
+    max_weight: 0.03
+    sector_cap: 0.25
+    gross_leverage: 1.0
+    adv_participation_cap: 0.10
+    rebalance_band: 0.0025
+
+mining:
+  max_formula_len: 20
+  vocab: flow_augmented
+  reward: pooled
+  novelty_lambda: 0.2
+  episodes: 20000
+  smoke_episodes: 2000
+  seeds: [0, 1, 2]
+  policy: gru
+  learning_rate: 0.001
+  baseline_momentum: 0.99
+  reward_clip: 1.0
+  entropy_coef: 0.01
+
+synthetic:
+  enabled: true
+  n_symbols: 520
+  seed: 7
