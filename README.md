@@ -324,6 +324,49 @@ the FII-selling tercile, reversal stronger when retail is extreme, both at the d
 direction and threshold. So the real-data result is a statement about the sample, not about
 the code.
 
+### Portfolio-level risk overlays — volatility targeting makes drawdowns worse
+
+The position-level constraints (name caps, sector caps, gross and net exposure) bound what
+any single position may be. Two *book-level* overlays were added and tested as hypotheses:
+volatility targeting (scale exposure by trailing realised vol toward 10% annual) and
+drawdown control (de-risk to 50% below −10%, restore above −5%, with a hysteresis band).
+Both ship **disabled**; `scripts/run_risk_overlay.py` runs all four combinations, and every
+one registers as its own trial.
+
+At capacity-independent notional, across all seven factors:
+
+| overlay | improved net Sharpe | reduced max drawdown | turnover multiple |
+|---|---|---|---|
+| volatility targeting | 3/7 | **0/7** | **1.58× – 2.42×** |
+| drawdown control | 4/7 | 7/7 | 0.58× – 1.00× |
+| both | 5/7 | 3/7 | — |
+
+**Volatility targeting made the maximum drawdown worse on every single factor**, by up to
+23 percentage points. The mechanism is not subtle in hindsight: it levers *up* in calm
+regimes, and calm regimes are what precede the breaks — so the book is at maximum exposure
+going into the move it most needed to be small for. It also roughly doubles turnover, which
+on this cost structure is 59 extra bps a year on `illiquidity` and 612 on `reversal_5d`.
+It is not shipped on, and the result is reported because it contradicts the reason one
+would reach for it.
+
+Drawdown control reduces drawdown on 7/7, which is close to tautological — an overlay that
+can only cut participation will shrink the drawdown on the path it was measured against.
+The honest reading is the Sharpe column beside it: on the four factors where Sharpe also
+improved, three have a *negative* edge, so what improved was the amount of a losing
+strategy being traded. The one case worth noting is `illiquidity`, the only factor with a
+real edge: net Sharpe 1.746 → 1.770 with the drawdown cut from −14.3% to −12.4% at
+identical turnover and cost.
+
+**That last result should not be trusted as-is.** A drawdown control is fitted to the
+realised path by construction: it reduces the drawdown that actually happened. Nothing here
+establishes it would help on an unseen path, and the 28 configurations evaluated are now in
+the trial registry precisely so the next Deflated Sharpe accounts for having looked.
+
+Drawdown, time-under-water and Calmar are now measured on **every** backtest whether or not
+control is enabled — they were not before, and the numbers change the picture: at ₹100
+crore, `reversal_5d` shows a **−99.65%** maximum drawdown across 1,869 of 1,869 sessions
+under water.
+
 ### Regime coverage
 
 All five regime columns are defined **through 2026-07-30**, the final price session:
