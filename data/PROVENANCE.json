@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-09-09T07:39:20.544510+00:00",
+  "updated_at": "2026-09-09T08:04:12.201386+00:00",
   "label": "LIVE DATA (PARTIAL: DELIVERY_PCT, SHARES_OUTSTANDING UNAVAILABLE)",
   "datasets": {
     "delivery_pct": {
@@ -10,7 +10,7 @@
     "fii_dii_cash": {
       "status": "real",
       "source": "https://www.nseindia.com/api/fiidiiTradeReact",
-      "note": "1 sessions accumulated (2026-07-30..2026-07-30). NSE api/fiidiiTradeReact is CURRENT-DAY ONLY. This series is accumulated by running scripts/download_flows.py daily, so its span reflects how long the script has been run, not data availability. Units: Rs crores (cash market), unlike flows_daily which is in net futures contracts."
+      "note": "2 sessions accumulated (2026-07-30..2026-09-08). NSE api/fiidiiTradeReact is CURRENT-DAY ONLY. This series is accumulated by running scripts/download_flows.py daily, so its span reflects how long the script has been run, not data availability. Units: Rs crores (cash market), unlike flows_daily which is in net futures contracts."
     },
     "flow_features": {
       "status": "real",
@@ -50,7 +50,7 @@
     "universe": {
       "status": "real",
       "source": "https://nsearchives.nseindia.com/content/indices/ind_nifty500list.csv",
-      "note": "NSE published NIFTY500 constituent list, 499 EQ symbols, CURRENT snapshot only"
+      "note": "NSE published NIFTY500 constituent list, 498 EQ symbols, CURRENT snapshot only"
     }
   },
   "caveats": [

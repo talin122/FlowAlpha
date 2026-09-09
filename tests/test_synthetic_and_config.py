@@ -8,6 +8,8 @@ import json
 import pytest
 import yaml
 
+from conftest import make_config
+
 from flowalpha.config import (
     IST,
     Config,
@@ -206,3 +208,53 @@ def test_config_without_source_file_still_snapshots(tmp_path):
     run_dir = new_run_dir(cfg, "nosrc", timestamp=_dt.datetime(2026, 1, 1, tzinfo=IST))
     assert yaml.safe_load((run_dir / "config.yaml").read_text())["seed"] == 1
     assert json.loads((run_dir / "provenance.json").read_text())["config_source"] is None
+
+
+# ---------------------------------------------------------------------------
+# Run snapshots must identify the DATA, not only the code
+# ---------------------------------------------------------------------------
+
+def test_run_snapshot_records_environment_and_input_digests(tmp_path, tiny_sessions):
+    """Config plus git hash identifies code and parameters but not inputs, so two runs
+    over different data produced identical snapshots. NSE swapped two constituents
+    mid-study and nothing recorded it."""
+    from flowalpha.config import new_run_dir
+
+    cfg = make_config(tmp_path, tiny_sessions)
+    (cfg.path("processed") / "prices.parquet").write_bytes(b"first")
+    run = new_run_dir(cfg, "t1")
+    snap = json.loads((run / "provenance.json").read_text())
+
+    assert snap["environment"]["python"]
+    assert snap["environment"]["packages"]["polars"]
+    assert "processed/prices.parquet" in snap["inputs"]
+    assert snap["inputs"]["processed/prices.parquet"]["bytes"] == 5
+
+
+def test_changed_input_changes_the_recorded_digest(tmp_path, tiny_sessions):
+    """The property that makes the digest worth storing: same code, same config,
+    different data must produce a different record."""
+    from flowalpha.config import new_run_dir
+
+    cfg = make_config(tmp_path, tiny_sessions)
+    target = cfg.path("processed") / "prices.parquet"
+
+    target.write_bytes(b"universe of 500")
+    a = json.loads((new_run_dir(cfg, "a") / "provenance.json").read_text())
+    target.write_bytes(b"universe of 498")
+    b = json.loads((new_run_dir(cfg, "b") / "provenance.json").read_text())
+
+    ka = a["inputs"]["processed/prices.parquet"]["sha256"]
+    kb = b["inputs"]["processed/prices.parquet"]["sha256"]
+    assert ka != kb
+
+
+def test_identical_inputs_give_identical_digests(tmp_path, tiny_sessions):
+    """And the converse, or the digest would flag every rerun as a change."""
+    from flowalpha.config import new_run_dir
+
+    cfg = make_config(tmp_path, tiny_sessions)
+    (cfg.path("processed") / "prices.parquet").write_bytes(b"stable")
+    a = json.loads((new_run_dir(cfg, "a") / "provenance.json").read_text())
+    b = json.loads((new_run_dir(cfg, "b") / "provenance.json").read_text())
+    assert a["inputs"] == b["inputs"]

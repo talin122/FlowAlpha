@@ -39,9 +39,31 @@ NIFTY500_URL = "https://nsearchives.nseindia.com/content/indices/ind_nifty500lis
 
 EXPECTED_COLUMNS = ("Company Name", "Industry", "Symbol", "Series", "ISIN Code")
 
+#: NSE issues temporary placeholder tickers during corporate actions -- a demerger or
+#: scheme of arrangement produces e.g. ``DUMMYHEG`` while the new entity is being set up.
+#: They appear in the published constituent list but are not tradable instruments and no
+#: price vendor carries them.
+#:
+#: This is not hypothetical: ``DUMMYHEG`` entered this universe on 2026-09-09, replacing
+#: HEG. Nothing downstream broke, because Yahoo returned no data and the panel simply
+#: omitted it -- but the symbol still reached universe_tickers.csv and sectors.csv, and a
+#: name that is silently dropped three stages later is a name nobody ever decided to drop.
+#: Excluded here, at the point of ingestion, and reported by count.
+PLACEHOLDER_PREFIXES = ("DUMMY",)
 
-def parse_constituents(content: bytes | str) -> pl.DataFrame:
-    """Parse the published constituent CSV, keeping only ``EQ`` series rows."""
+
+def is_placeholder(symbol: str) -> bool:
+    """True for an NSE corporate-action placeholder rather than a tradable symbol."""
+    return symbol.upper().startswith(PLACEHOLDER_PREFIXES)
+
+
+def parse_constituents(content: bytes | str) -> tuple[pl.DataFrame, list[str]]:
+    """Parse the published constituent CSV, keeping only tradable ``EQ`` rows.
+
+    Returns ``(members, dropped_placeholders)``. The placeholders are returned rather
+    than discarded so the caller can report them: a universe that quietly shrinks is the
+    kind of change that makes two runs incomparable without anyone noticing.
+    """
     text = content.decode("utf-8", errors="replace") if isinstance(content, bytes) else content
     head = text.lstrip()[:200].lower()
     if head.startswith("<!doctype html") or head.startswith("<html"):
@@ -62,9 +84,12 @@ def parse_constituents(content: bytes | str) -> pl.DataFrame:
         .unique(subset=["symbol"], keep="first")
         .sort("symbol")
     )
+    dropped = [s for s in out["symbol"].to_list() if is_placeholder(s)]
+    if dropped:
+        out = out.filter(~pl.col("symbol").map_elements(is_placeholder, return_dtype=pl.Boolean))
     if out.is_empty():
-        raise ValueError("constituent list parsed to zero EQ symbols")
-    return out
+        raise ValueError("constituent list parsed to zero tradable EQ symbols")
+    return out, dropped
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -82,7 +107,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         with NSESession(cfg) as session:
             result = session.get(args.url, allow_missing=False)
-        members = parse_constituents(result.content)
+        members, placeholders = parse_constituents(result.content)
     except (FetchError, ValueError) as exc:
         say(f"FATAL: could not obtain the constituent list: {exc}")
         say(
@@ -94,7 +119,16 @@ def main(argv: list[str] | None = None) -> int:
 
     declared = int(cfg["universe"]["size"])
     n = members.height
-    say(f"parsed {n} EQ symbols (config declares universe.size = {declared})")
+    if placeholders:
+        say(
+            f"excluded {len(placeholders)} corporate-action placeholder(s): "
+            f"{', '.join(placeholders)}"
+        )
+        say(
+            "  These are NSE scaffolding symbols, not tradable instruments. Dropped here "
+            "rather than left to vanish silently when a price vendor returns nothing."
+        )
+    say(f"parsed {n} tradable EQ symbols (config declares universe.size = {declared})")
     if n != declared:
         say(
             f"WARNING: constituent count {n} differs from declared size {declared}. "

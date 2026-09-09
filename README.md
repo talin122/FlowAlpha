@@ -100,6 +100,16 @@ Each run creates `results/runs/<YYYYmmdd_HHMMSS>_<label>/` containing a snapshot
 has uncommitted changes, label, cwd, seed). One `seed` in config drives everything
 stochastic.
 
+The snapshot also records the **environment** (Python and the versions of polars, numpy,
+scipy, pyarrow, pyyaml) and a **SHA-256 of every processed and reference input**. Config
+plus git hash identifies the code and parameters but not the data, and two runs over
+different inputs previously produced identical records. That gap is not theoretical: on
+2026-09-09 NSE replaced HEG and HFCL in the published constituent list and added the
+placeholder ticker `DUMMYHEG`, the universe went from 500 names to 498 mid-study, and
+nothing in any snapshot recorded it. Library versions matter for the same reason — polars
+has changed quantile interpolation across minor releases and every expanding tercile here
+depends on it.
+
 ### 6. Never fabricate data to make a step pass
 
 Missing sessions are **reported, not filled**. The 4 sessions in this window with no
@@ -176,6 +186,14 @@ Retail participation is the `Client` category in NSE's F&O file, which includes 
 other non-institutional accounts. It is a proxy for retail, not a measurement of it.
 
 ---
+
+## Verifying the shipped state
+
+`python scripts/verify_project.py` re-derives every invariant from the artefacts actually
+on disk — lag enforcement against the live store, expanding-window warm-up, provenance
+status per dataset, the cumulative trial registry, run-snapshot completeness, unfilled flow
+gaps, report self-containment — and exits non-zero if any check fails. The test suite
+proves the code is correct on fixtures; this proves the shipped data tree is.
 
 ## Reproduction
 
@@ -558,6 +576,12 @@ section:
 * **Dividend adjustment is proportional**, not a reconstruction of each corporate action.
 * **Sector labels are a current snapshot**, so sector caps and neutralisation inherit a
   mild classification look-ahead.
+* **The constituent list changes underneath a running study.** NSE publishes only the
+  current NIFTY 500, so re-fetching mid-study silently changes the sample — it moved from
+  500 names to 498 during this project's own verification. Corporate-action placeholder
+  tickers (`DUMMY*`) are now excluded at ingestion and reported by name rather than left
+  to vanish downstream when a price vendor returns nothing for them, and every run
+  snapshot hashes the universe file so the change is visible when comparing two runs.
 * **IC t-statistics are raw**, adjusted only for autocorrelation. Only Sharpe ratios are
   deflated.
 * **The conditioning test is underpowered by construction, not by accident.** A regime

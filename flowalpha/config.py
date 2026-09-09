@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import copy
 import datetime as _dt
+import hashlib
+import importlib.metadata as _metadata
 import json
 import os
 import shutil
@@ -260,8 +262,21 @@ def new_run_dir(
     """Create ``results/runs/<YYYYmmdd_HHMMSS>_<label>/`` and snapshot the run inputs.
 
     Writes both ``config.yaml`` (verbatim copy where possible, else a serialised
-    dump) and ``provenance.json`` (timestamp, git hash, label, cwd). Together these
-    make the run reproducible from the directory alone.
+    dump) and ``provenance.json`` (timestamp, git hash, label, cwd, seed, environment
+    and input digests). Together these make the run reproducible from the directory
+    alone.
+
+    Why the digests
+    ---------------
+    Config plus git hash identifies the *code and parameters*, but not the *data*. Two
+    runs of identical code over different inputs produced identical snapshots, so a
+    silent change to the data was invisible in the record.
+
+    That is not a theoretical gap. On 2026-09-09 NSE replaced HEG and HFCL in the
+    published constituent list and added the placeholder ticker DUMMYHEG; the universe
+    went from 500 names to 498 mid-study and nothing in any snapshot recorded it. A
+    content hash of each processed input makes that difference visible when comparing
+    two runs, without storing the data itself.
 
     ``timestamp`` is injectable so tests get a deterministic directory name.
     """
@@ -285,6 +300,8 @@ def new_run_dir(
                 "cwd": str(Path.cwd()),
                 "config_source": str(cfg.source_file) if cfg.source_file else None,
                 "seed": cfg.seed,
+                "environment": environment_snapshot(),
+                "inputs": input_digests(cfg),
             },
             indent=2,
         )
@@ -292,3 +309,65 @@ def new_run_dir(
         encoding="utf-8",
     )
     return run_dir
+
+
+#: Direct dependencies whose version can change a result. polars in particular has
+#: changed quantile interpolation and null semantics across minor releases, and every
+#: expanding tercile in this project depends on both.
+_TRACKED_PACKAGES = ("polars", "numpy", "scipy", "pyarrow", "pyyaml")
+
+
+def environment_snapshot() -> dict:
+    """Python and library versions, so a rerun can be told apart from a re-derivation.
+
+    Recorded because "same config, same commit" is not the same as "same answer" when a
+    dependency's numerical behaviour has moved underneath both.
+    """
+    import platform
+
+    versions = {}
+    for name in _TRACKED_PACKAGES:
+        try:
+            versions[name] = _metadata.version(name)
+        except Exception:  # pragma: no cover - absent package, recorded as such
+            versions[name] = None
+    return {
+        "python": platform.python_version(),
+        "platform": platform.platform(),
+        "packages": versions,
+    }
+
+
+def input_digests(cfg: Config, *, max_bytes: int = 512 * 1024 * 1024) -> dict:
+    """SHA-256 of every processed and reference input, with row-cheap metadata.
+
+    Hashes the file bytes rather than the parsed frame: it is the cheaper operation and
+    it catches a rewrite that happens to preserve the data as readily as one that does
+    not. Files above ``max_bytes`` record their size and mtime instead of a digest, so
+    an unexpectedly large tree cannot make a run hang.
+    """
+    out: dict[str, dict] = {}
+    for key in ("processed", "reference"):
+        try:
+            root = cfg.path(key)
+        except Exception:  # pragma: no cover - path not configured
+            continue
+        if not root.exists():
+            continue
+        for path in sorted(root.rglob("*")):
+            if not path.is_file() or path.name.startswith("."):
+                continue
+            rel = f"{key}/{path.relative_to(root).as_posix()}"
+            size = path.stat().st_size
+            entry: dict = {"bytes": size}
+            if size <= max_bytes:
+                h = hashlib.sha256()
+                with path.open("rb") as fh:
+                    for chunk in iter(lambda: fh.read(1 << 20), b""):
+                        h.update(chunk)
+                entry["sha256"] = h.hexdigest()
+            else:  # pragma: no cover - defensive, no such file in this project
+                entry["sha256"] = None
+                entry["note"] = f"skipped: larger than {max_bytes} bytes"
+            out[rel] = entry
+    return out
