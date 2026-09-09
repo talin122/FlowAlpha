@@ -42,21 +42,44 @@ from flowalpha.validation.deflated_sharpe import deflated_sharpe_ratio
 
 #: The configurations compared. Declared up front, as a fixed set, so the comparison is
 #: not a search that stops when something looks good.
-VARIANTS = ("none", "vol_target", "drawdown", "both")
+#:
+#: ``vol_absolute`` is kept deliberately even though it is known to be broken: it is the
+#: configuration that shipped, and dropping it would hide the defect the other two
+#: variants exist to fix. A 10% target against books running at 4-8% realised volatility
+#: is a standing demand for 1.2x-2.5x leverage, and it worsened drawdown on 7/7 factors.
+VARIANTS = (
+    "none",
+    "vol_absolute",   # the original, broken: fixed 10% target regardless of the book
+    "vol_relative",   # targets the strategy's OWN long-run vol; centred on 1.0
+    "vol_delever",    # relative, clamped at 1.0: can only ever reduce exposure
+    "drawdown",
+    "relative+dd",
+)
+
+#: Which overlays each variant switches on, and how the targeter is configured.
+_VOL_MODE = {
+    "vol_absolute": {"target_mode": "absolute", "de_lever_only": False},
+    "vol_relative": {"target_mode": "relative", "de_lever_only": False},
+    "vol_delever": {"target_mode": "relative", "de_lever_only": True},
+    "relative+dd": {"target_mode": "relative", "de_lever_only": False},
+}
+_USES_DD = {"drawdown", "relative+dd"}
 
 
 def _overlay(cfg, variant: str) -> RiskOverlay:
     """Build an overlay for one variant from the config's parameters.
 
-    The *parameters* come from config; only the enabled flags vary here. A variant that
-    also retuned the window or the threshold would be a different hypothesis, and
-    picking among those is the multiple-testing problem this file warns about.
+    Windows, thresholds and bounds all come from config; a variant changes only the mode
+    and the enabled flags. Retuning a window per variant would make this a search over
+    hyperparameters, and picking the best cell of that search is exactly the
+    multiple-testing problem the trial registry exists to price.
     """
     node = cfg.get("backtest.risk", {}) or {}
     vol = VolTargetConfig.from_mapping(node.get("volatility_target"))
     dd = DrawdownConfig.from_mapping(node.get("drawdown_control"))
-    vol = VolTargetConfig(**{**vol.__dict__, "enabled": variant in ("vol_target", "both")})
-    dd = DrawdownConfig(**{**dd.__dict__, "enabled": variant in ("drawdown", "both")})
+    mode = _VOL_MODE.get(variant)
+    vol = VolTargetConfig(**{**vol.__dict__, "enabled": mode is not None, **(mode or {})})
+    dd = DrawdownConfig(**{**dd.__dict__, "enabled": variant in _USES_DD})
     return RiskOverlay(vol=VolatilityTargeter(vol), drawdown=DrawdownController(dd))
 
 
@@ -91,8 +114,8 @@ def main(argv: list[str] | None = None) -> int:
         panel = pipe.panels[name]
         say("")
         say(f"{name}")
-        say(f"  {'variant':<12} {'net SR':>8} {'maxDD':>9} {'TUW':>6} {'calmar':>8} "
-            f"{'turnover':>9} {'cost bps':>9} {'DSR':>6}")
+        say(f"  {'variant':<13} {'net SR':>8} {'maxDD':>9} {'calmar':>7} "
+            f"{'turnover':>9} {'cost':>7} {'mean lev':>9} {'%>1x':>6}")
         for variant in VARIANTS:
             res = run_backtest(
                 panel, pipe.prices, cfg, notional=args.notional,
@@ -110,9 +133,12 @@ def main(argv: list[str] | None = None) -> int:
                 ),
             )
             prob = float(dsr.dsr)
-            say(f"  {variant:<12} {res.net_sharpe:>8.3f} {res.max_drawdown:>9.4f} "
-                f"{res.time_under_water_days:>6} {res.calmar:>8.3f} "
-                f"{res.annual_turnover:>9.1f} {res.total_cost_bps:>9.1f} {prob:>6.3f}")
+            rk = res.risk_detail or {}
+            lev = rk.get("mean_risk_scale", 1.0)
+            above = rk.get("fraction_levered_above_1x", 0.0)
+            say(f"  {variant:<13} {res.net_sharpe:>8.3f} {res.max_drawdown:>9.4f} "
+                f"{res.calmar:>7.3f} {res.annual_turnover:>9.1f} "
+                f"{res.total_cost_bps:>7.1f} {lev:>9.3f} {above:>6.1%}")
             rows.append(
                 {
                     "factor": name, "variant": variant,

@@ -303,6 +303,7 @@ def run_backtest(
         daily = daily.with_columns(
             pl.Series("risk_scale", [h["risk_scale"] for h in overlay.history], pl.Float64),
             pl.Series("realized_vol", [h["realized_vol"] for h in overlay.history], pl.Float64),
+            pl.Series("target_vol", [h["target_vol"] for h in overlay.history], pl.Float64),
             pl.Series("drawdown", [h["drawdown"] for h in overlay.history], pl.Float64),
             pl.Series("derisked", [h["derisked"] for h in overlay.history], pl.Boolean),
         )

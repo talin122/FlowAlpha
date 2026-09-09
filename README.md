@@ -342,12 +342,41 @@ At capacity-independent notional, across all seven factors:
 | both | 5/7 | 3/7 | — |
 
 **Volatility targeting made the maximum drawdown worse on every single factor**, by up to
-23 percentage points. The mechanism is not subtle in hindsight: it levers *up* in calm
-regimes, and calm regimes are what precede the breaks — so the book is at maximum exposure
-going into the move it most needed to be small for. It also roughly doubles turnover, which
-on this cost structure is 59 extra bps a year on `illiquidity` and 612 on `reversal_5d`.
-It is not shipped on, and the result is reported because it contradicts the reason one
-would reach for it.
+23 percentage points. The first explanation written here was that it "levers up in calm
+regimes, and calm regimes precede the breaks." That was a plausible story asserted without
+testing, and it is **not** the dominant mechanism. The real cause is duller and worse:
+
+Every factor book realises **4.0%–8.2% annualised volatility**. The configured target was
+**10%**. So on all seven the overlay demanded 1.22×–2.51× leverage *permanently* — mean
+applied scale 1.33–1.96, and on `reversal_5d` and `volume_trend` the **minimum** scale was
+1.000, meaning it never de-levered once in 1,900 sessions. That is not a risk control; it
+is leverage wearing a risk-control label, and leverage multiplies drawdown.
+
+Across all 35 variant × factor cells, mean applied leverage and the change in drawdown
+correlate at **+0.906 — leverage alone explains 82% of the variance.**
+
+#### The fix, and what it revealed
+
+Two modes were added. `relative` targets the strategy's *own* trailing 504-session
+volatility (`scale = long_run_vol / short_run_vol`), so it is centred on 1.0 by
+construction; `de_lever_only` clamps the scale at 1.0 so the overlay can only ever reduce
+exposure. `relative` is now the config default, and `absolute` carries a warning.
+
+The fix works as designed — mean leverage falls from 1.33–1.96 to 1.09–1.15, and on
+`illiquidity` net Sharpe goes **1.739 → 1.815 with the drawdown unchanged**, against the
+broken variant's −0.2045. But with the leverage confound removed, the honest conclusion is
+that **volatility timing adds nothing here**:
+
+| variant | better Sharpe | shallower maxDD | mean leverage |
+|---|---|---|---|
+| `vol_absolute` (original, broken) | 3/7 | 0/7 | 1.33 – 1.96 |
+| `vol_relative` (fixed) | 3/7 | 2/7 | 1.09 – 1.15 |
+| `vol_delever` (can only reduce) | 1/7 | 5/7 | 0.96 – 0.98 |
+
+So the original finding was right for the wrong reason. Volatility targeting did not fail
+because vol timing is harmful; it failed because it was mis-parameterised into a leverage
+machine. Corrected, it is simply neutral — a wash on Sharpe that costs 30–40% more
+turnover. It stays off, now for an accurate reason.
 
 Drawdown control reduces drawdown on 7/7, which is close to tautological — an overlay that
 can only cut participation will shrink the drawdown on the path it was measured against.

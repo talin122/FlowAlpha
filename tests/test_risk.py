@@ -468,3 +468,112 @@ def test_calmar_is_nan_rather_than_infinite_without_a_drawdown():
         n_days=0, holding_days=5,
     )
     assert math.isnan(r.calmar)
+
+
+# ---------------------------------------------------------------------------
+# Target mode: the fix for "vol targeting made drawdowns worse on 7/7"
+# ---------------------------------------------------------------------------
+
+def test_absolute_mode_above_the_strategys_own_vol_is_pure_leverage():
+    """The defect this mode exists to make visible.
+
+    A 10% target against a book running at ~6% is not a risk control; it is a standing
+    demand for 1.7x leverage, and leverage multiplies drawdown. Pinned as a property so
+    nobody re-introduces a target chosen without reference to the strategy."""
+    t = _targeter(target_mode="absolute", target_annual_vol=0.10,
+                  window=60, min_obs=60, max_leverage_multiple=4.0)
+    rng = np.random.default_rng(4)
+    daily = 0.06 / math.sqrt(TRADING_DAYS)          # ~6% annualised book
+    for r in rng.normal(0, daily, 60):
+        t.update(float(r))
+    assert t.scale() > 1.4
+
+
+def test_relative_mode_centres_on_one_when_vol_is_stable():
+    """Targeting the strategy's own long-run volatility cannot systematically lever:
+    with short-run vol equal to long-run vol the ratio is 1."""
+    t = _targeter(target_mode="relative", window=30, long_window=200,
+                  min_obs=30, max_leverage_multiple=4.0, min_leverage_multiple=0.1)
+    rng = np.random.default_rng(5)
+    for r in rng.normal(0, 0.01, 400):
+        t.update(float(r))
+    assert t.scale() == pytest.approx(1.0, abs=0.25)
+
+
+def test_relative_mode_de_levers_when_recent_vol_exceeds_the_baseline():
+    t = _targeter(target_mode="relative", window=30, long_window=200,
+                  min_obs=30, max_leverage_multiple=4.0, min_leverage_multiple=0.1)
+    rng = np.random.default_rng(6)
+    for r in rng.normal(0, 0.01, 300):
+        t.update(float(r))
+    calm = t.scale()
+    for r in rng.normal(0, 0.05, 30):       # a volatility spike
+        t.update(float(r))
+    assert t.scale() < calm
+    assert t.scale() < 1.0
+
+
+def test_relative_mode_needs_the_long_baseline_before_it_acts():
+    """Scaling off a baseline built from a handful of points would be noise."""
+    t = _targeter(target_mode="relative", window=30, long_window=200, min_obs=30)
+    rng = np.random.default_rng(7)
+    for r in rng.normal(0, 0.01, 199):
+        t.update(float(r))
+    assert t.scale() == NEUTRAL_SCALE
+    for r in rng.normal(0, 0.01, 5):
+        t.update(float(r))
+    assert t.scale() != NEUTRAL_SCALE
+
+
+def test_relative_mode_rejects_a_baseline_no_longer_than_the_window():
+    with pytest.raises(ValueError):
+        VolatilityTargeter(VolTargetConfig(
+            enabled=True, target_mode="relative", window=60, long_window=60,
+        ))
+
+
+def test_an_unknown_target_mode_is_rejected():
+    with pytest.raises(ValueError):
+        VolatilityTargeter(VolTargetConfig(enabled=True, target_mode="whatever"))
+
+
+def test_de_lever_only_never_returns_a_scale_above_one():
+    """The bounded-worst-case configuration: an overlay that cannot add risk."""
+    t = _targeter(target_mode="absolute", target_annual_vol=0.50,
+                  window=30, min_obs=30, max_leverage_multiple=4.0,
+                  de_lever_only=True)
+    rng = np.random.default_rng(8)
+    for r in rng.normal(0, 0.001, 30):      # very calm -> would demand huge leverage
+        t.update(float(r))
+    assert t.scale() == pytest.approx(1.0)
+
+
+def test_de_lever_only_still_reduces_exposure_when_vol_is_high():
+    """Clamping the upper bound must not disable the downside response."""
+    t = _targeter(target_mode="absolute", target_annual_vol=0.10,
+                  window=30, min_obs=30, de_lever_only=True,
+                  min_leverage_multiple=0.1)
+    rng = np.random.default_rng(9)
+    for r in rng.normal(0, 0.05, 30):
+        t.update(float(r))
+    assert t.scale() < 1.0
+
+
+def test_summary_reports_time_spent_adding_risk(tmp_path):
+    """`fraction_levered_above_1x` is the number that would have caught the original
+    defect at a glance: an overlay levering most of the time is not a risk control."""
+    panel, prices, sessions = _panel_and_prices()
+    res = run_backtest(
+        panel, prices,
+        _cfg(tmp_path, sessions, volatility_target={
+            "enabled": True, "window": 30, "min_obs": 30,
+            "target_mode": "absolute", "target_annual_vol": 2.0,
+        }),
+    )
+    # The first `min_obs` sessions return the neutral scale before any estimate exists,
+    # so the achievable ceiling here is (n_days - 30) / n_days, about 0.88.
+    warmup_ceiling = (res.n_days - 30) / res.n_days
+    assert res.risk_detail["fraction_levered_above_1x"] == pytest.approx(
+        warmup_ceiling, abs=0.01
+    )
+    assert res.risk_detail["target_mode"] == "absolute"

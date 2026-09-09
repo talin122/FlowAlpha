@@ -95,11 +95,23 @@ backtest:
   risk:
     volatility_target:
       enabled: false
-      target_annual_vol: 0.10    # annualised, on the long/short book
-      window: 63                 # trailing sessions used to estimate realised vol
+      # `relative` targets the strategy's OWN trailing long_window volatility, so the
+      # scale is centred on 1.0 and the overlay stabilises risk instead of adding it.
+      #
+      # `absolute` targets target_annual_vol regardless of the book, and is a trap: these
+      # factor books realise 4.0%-8.2% annualised, so the 10% below demanded 1.2x-2.5x
+      # leverage at ALL times (two factors never de-levered once in 1,900 sessions) and
+      # worsened maximum drawdown on 7/7. Across 35 variant-factor cells, mean leverage
+      # explains 82% of the variance in drawdown change. Only use `absolute` with a
+      # target at or below the strategy's measured volatility.
+      target_mode: relative
+      target_annual_vol: 0.10    # `absolute` mode only
+      window: 63                 # trailing sessions for the current vol estimate
+      long_window: 504           # `relative` mode baseline; must exceed `window`
       min_obs: 63                # below this, no scaling at all -- never guess a vol
       max_leverage_multiple: 2.0 # a quiet patch must not lever into the next regime
       min_leverage_multiple: 0.25
+      de_lever_only: false       # true clamps the scale at 1.0: can only reduce risk
     drawdown_control:
       enabled: false
       threshold: 0.10            # de-risk once drawdown is worse than -10%
