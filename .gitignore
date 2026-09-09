@@ -12,3 +12,6 @@ data/raw/
 
 # Generated outputs
 results/
+
+# macOS
+.DS_Store

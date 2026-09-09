@@ -88,6 +88,24 @@ backtest:
   rebalance: daily
   holding_days: 5
   gross_leverage: 1.0
+  # Portfolio-level risk overlays. BOTH DEFAULT OFF, deliberately: enabling one changes
+  # every backtested number in the repository, and each configuration is a separate look
+  # at the same data that must register as its own trial. Turn them on explicitly, via
+  # scripts/run_risk_overlay.py, so the comparison is against a recorded baseline.
+  risk:
+    volatility_target:
+      enabled: false
+      target_annual_vol: 0.10    # annualised, on the long/short book
+      window: 63                 # trailing sessions used to estimate realised vol
+      min_obs: 63                # below this, no scaling at all -- never guess a vol
+      max_leverage_multiple: 2.0 # a quiet patch must not lever into the next regime
+      min_leverage_multiple: 0.25
+    drawdown_control:
+      enabled: false
+      threshold: 0.10            # de-risk once drawdown is worse than -10%
+      derisk_to: 0.5             # exposure multiple while de-risked
+      restore_threshold: 0.05    # restore above -5%; the gap is a hysteresis band that
+                                 # stops the control thrashing on and off at one boundary
   costs:
     stt_delivery: 0.001          # 0.10% sell side, delivery
     stt_intraday_sell: 0.00025

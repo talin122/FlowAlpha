@@ -27,13 +27,15 @@ import polars as pl
 
 from ..validation.deflated_sharpe import TRADING_DAYS, sharpe_ratio
 from .costs import CostModel, rolling_adv
+from .risk import RiskOverlay, max_drawdown_from_returns, time_under_water
 
 
 @dataclass
 class BacktestResult:
     """Daily P&L series and summary statistics."""
 
-    #: (date, gross_return, net_return, cost, turnover, n_long, n_short)
+    #: (date, gross_return, net_return, cost, turnover, n_long, n_short) plus
+    #: (risk_scale, realized_vol, drawdown, derisked) when a risk overlay is active.
     daily: pl.DataFrame
     gross_sharpe: float
     net_sharpe: float
@@ -44,6 +46,13 @@ class BacktestResult:
     n_days: int
     holding_days: int
     cost_detail: dict = field(default_factory=dict)
+    #: Realised drawdown statistics. Always measured, whether or not drawdown control is
+    #: switched on -- a risk that is never quantified cannot be reasoned about.
+    max_drawdown: float = float("nan")
+    time_under_water_days: int = 0
+    calmar: float = float("nan")
+    #: Behaviour of the risk overlay over the run; ``{"enabled": False}`` when inactive.
+    risk_detail: dict = field(default_factory=dict)
 
     @property
     def net_returns(self) -> np.ndarray:
@@ -63,7 +72,11 @@ class BacktestResult:
             "total_cost_bps": self.total_cost_bps,
             "n_days": self.n_days,
             "holding_days": self.holding_days,
+            "max_drawdown": self.max_drawdown,
+            "time_under_water_days": self.time_under_water_days,
+            "calmar": self.calmar,
             **self.cost_detail,
+            **({"risk": self.risk_detail} if self.risk_detail else {}),
         }
 
 
@@ -122,6 +135,7 @@ def run_backtest(
     gross_leverage: float | None = None,
     notional: float = 1.0,
     value_col: str = "value",
+    risk: RiskOverlay | None = None,
 ) -> BacktestResult:
     """Run the daily long/short backtest of one factor panel.
 
@@ -135,6 +149,24 @@ def run_backtest(
         Book size in rupees, used only to scale impact costs. Weights are fractions of
         this, so with the default of 1.0 impact is negligible and the run is effectively
         a capacity-free upper bound -- pass a realistic AUM to see impact bite.
+    risk:
+        Optional portfolio-level overlay (volatility targeting, drawdown control). When
+        ``None`` it is built from config, which ships with both disabled, so the default
+        run is byte-identical to one with no overlay at all.
+
+    Risk overlay mechanics
+    ----------------------
+    The scale for session ``i`` is requested *before* session ``i``'s return exists, and
+    the overlay has only been fed sessions ``< i``, so it cannot see the return it is
+    about to size. It is applied through the ordinary sleeve rebalance, which means the
+    resulting change in position is charged by the same cost model as any other trade --
+    a rescale that did not pay turnover would be free Sharpe.
+
+    Because the scale enters at sleeve rebalance rather than by re-marking the whole
+    book daily, the book's effective exposure reaches a new scale over ``holding``
+    sessions rather than immediately. That lag is deliberate: tracking the target
+    exactly would require trading the entire book every session, and on a strategy whose
+    costs already dominate, that cure is worse than the disease.
     """
     bcfg = cfg["backtest"]
     holding = int(holding_days if holding_days is not None else bcfg["holding_days"])
@@ -173,9 +205,15 @@ def run_backtest(
             signal[i], long_only=long_only_flag, gross_leverage=leverage, n_quantiles=5
         )
 
+    overlay = risk if risk is not None else RiskOverlay.from_config(cfg)
+
     # `holding` overlapping sleeves, each holding 1/holding of the gross and
     # rebalancing every `holding` sessions on a staggered schedule.
     held = np.zeros((holding, m))
+    # The same sleeves at scale 1.0. Kept so the volatility estimate is taken from the
+    # unlevered strategy: estimating vol from already-scaled returns makes the targeter
+    # chase its own leverage, damping towards a fixed point that is not the target.
+    held_unit = np.zeros((holding, m))
     sleeve_scale = 1.0 / holding
 
     dates_out, gross_out, net_out, cost_out, turn_out = [], [], [], [], []
@@ -187,10 +225,16 @@ def run_backtest(
 
     for i in range(n - 1):
         sleeve = i % holding
+        # Requested before session i's return is computed, from returns fed for sessions
+        # < i only. There is no future return in scope here to index into.
+        scale = overlay.scale()
+        overlay.record(scale)
+
         prev = held[sleeve].copy()
-        new = target[i] * sleeve_scale
+        new = target[i] * sleeve_scale * scale
         delta = new - prev
         held[sleeve] = new
+        held_unit[sleeve] = target[i] * sleeve_scale
 
         traded_value = float(np.abs(delta).sum()) * notional
         buys = float(delta[delta > 0].sum()) * notional
@@ -218,11 +262,19 @@ def run_backtest(
         contrib = np.where(np.isfinite(step), book * np.nan_to_num(step, nan=0.0), 0.0)
         gross = float(contrib.sum())
         cost_frac = (fixed + impact) / notional if notional > 0 else 0.0
+        net = gross - cost_frac
+
+        unit_book = held_unit.sum(axis=0)
+        unit_return = float(
+            np.where(np.isfinite(step), unit_book * np.nan_to_num(step, nan=0.0), 0.0).sum()
+        )
+        # Fed only after the scale for this session was already fixed above.
+        overlay.update(unit_return=unit_return, net_return=net)
 
         dates_out.append(sessions[i + 1])
         gross_out.append(gross)
         cost_out.append(cost_frac)
-        net_out.append(gross - cost_frac)
+        net_out.append(net)
         turn_out.append(traded_value / notional if notional > 0 else 0.0)
         n_long_out.append(int((book > 1e-12).sum()))
         n_short_out.append(int((book < -1e-12).sum()))
@@ -247,12 +299,34 @@ def run_backtest(
             "n_long": pl.UInt32, "n_short": pl.UInt32,
         },
     )
+    if overlay.enabled and overlay.history:
+        daily = daily.with_columns(
+            pl.Series("risk_scale", [h["risk_scale"] for h in overlay.history], pl.Float64),
+            pl.Series("realized_vol", [h["realized_vol"] for h in overlay.history], pl.Float64),
+            pl.Series("drawdown", [h["drawdown"] for h in overlay.history], pl.Float64),
+            pl.Series("derisked", [h["derisked"] for h in overlay.history], pl.Boolean),
+        )
+
     days = daily.height
     gross_arr = np.asarray(gross_out, dtype=float)
     net_arr = np.asarray(net_out, dtype=float)
     years = days / TRADING_DAYS if days else float("nan")
+    net_dd = max_drawdown_from_returns(net_arr)
+    net_annual = float(net_arr.mean() * TRADING_DAYS) if days else float("nan")
+    # Calmar is undefined rather than infinite when there was no drawdown: dividing by a
+    # zero denominator would report a spectacular ratio for a series too short to have
+    # lost money yet.
+    calmar = (
+        net_annual / abs(net_dd)
+        if np.isfinite(net_dd) and abs(net_dd) > 1e-12 and np.isfinite(net_annual)
+        else float("nan")
+    )
     return BacktestResult(
         daily=daily,
+        max_drawdown=net_dd,
+        time_under_water_days=time_under_water(net_arr),
+        calmar=calmar,
+        risk_detail=overlay.summary() if overlay.enabled else {},
         gross_sharpe=sharpe_ratio(gross_arr),
         net_sharpe=sharpe_ratio(net_arr),
         gross_annual_return=float(gross_arr.mean() * TRADING_DAYS) if days else float("nan"),
@@ -304,10 +378,15 @@ def equity_curve(result: BacktestResult, *, column: str = "net_return") -> pl.Da
 
 
 def max_drawdown(result: BacktestResult, *, column: str = "net_return") -> float:
-    """Worst peak-to-trough decline of the compounded curve."""
-    curve = equity_curve(result, column=column)
-    if curve.is_empty():
+    """Worst peak-to-trough decline of the compounded curve.
+
+    Delegates to :func:`flowalpha.backtest.risk.max_drawdown_from_returns` so the number
+    reported on :attr:`BacktestResult.max_drawdown` and the one computed here cannot
+    drift apart. Retained for callers that want the drawdown of the *gross* series, which
+    the stored field does not carry.
+    """
+    if result.daily.is_empty():
         return float("nan")
-    equity = np.asarray(curve["equity"].to_list(), dtype=float)
-    peak = np.maximum.accumulate(equity)
-    return float(np.min(equity / peak - 1.0))
+    return max_drawdown_from_returns(
+        np.asarray(result.daily[column].to_list(), dtype=float)
+    )
