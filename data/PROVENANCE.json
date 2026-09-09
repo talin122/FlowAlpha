@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-30T17:46:32.214429+00:00",
+  "updated_at": "2026-09-09T06:22:47.512783+00:00",
   "label": "LIVE DATA (PARTIAL: DELIVERY_PCT, SHARES_OUTSTANDING UNAVAILABLE)",
   "datasets": {
     "delivery_pct": {
@@ -20,17 +20,17 @@
     "flows_daily": {
       "status": "real",
       "source": "https://nsearchives.nseindia.com/content/nsccl/fao_participant_vol_DDMMYYYY.csv",
-      "note": "1871 sessions (2019-01-01..2026-07-30), derived from the cached fao_participant_vol archive. Units: NET FUTURES CONTRACTS, not cash rupees."
+      "note": "1897 sessions (2019-01-01..2026-09-04), derived from the cached fao_participant_vol archive. Units: NET FUTURES CONTRACTS, not cash rupees."
     },
     "participant_flows": {
       "status": "real",
       "source": "https://nsearchives.nseindia.com/content/nsccl/fao_participant_vol_DDMMYYYY.csv",
-      "note": "1871 sessions (2019-01-01..2026-07-30), derived from the cached fao_participant_vol archive. Units: NET FUTURES CONTRACTS, not cash rupees. Categories: Client (retail proxy), DII, FII, Pro."
+      "note": "1897 sessions (2019-01-01..2026-09-04), derived from the cached fao_participant_vol archive. Units: NET FUTURES CONTRACTS, not cash rupees. Categories: Client (retail proxy), DII, FII, Pro."
     },
     "prices": {
       "status": "real",
       "source": "Yahoo Finance via yfinance (auto_adjust=False, group_by=ticker)",
-      "note": "500 symbols, 1875 sessions, 2019-01-01..2026-07-30. adj_factor = adj_close/close applied to open/high/low; volume left raw so turnover = close*volume is split-invariant."
+      "note": "500 symbols, 1901 sessions, 2019-01-01..2026-09-04. adj_factor = adj_close/close applied to open/high/low; volume left raw so turnover = close*volume is split-invariant."
     },
     "sectors": {
       "status": "real",
@@ -45,7 +45,7 @@
     "trading_calendar": {
       "status": "real",
       "source": "derived from observed price dates",
-      "note": "1875 sessions derived from the price panel; weekdays in range with no trading (106) are treated as holidays."
+      "note": "1901 sessions derived from the price panel; weekdays in range with no trading (106) are treated as holidays."
     },
     "universe": {
       "status": "real",

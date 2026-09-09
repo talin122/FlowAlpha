@@ -26,7 +26,7 @@ universe:
 
 dates:
   start: "2019-01-01"
-  end: "2026-07-30"
+  end: "2026-09-06"
   timezone: "Asia/Kolkata"
 
 # Availability lags in TRADING days unless *_calendar_days. ENFORCED by the store

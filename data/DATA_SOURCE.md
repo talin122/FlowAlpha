@@ -7,19 +7,19 @@
 
 > !! LIVE DATA (PARTIAL: DELIVERY_PCT, SHARES_OUTSTANDING UNAVAILABLE): some inputs are missing, so the factors that depend on them are inert. See data/DATA_SOURCE.md.
 
-_Record last updated: 2026-07-30T17:46:32.214429+00:00_
+_Record last updated: 2026-09-09T06:22:47.512783+00:00_
 
 | dataset | status | source | note |
 | --- | --- | --- | --- |
 | `delivery_pct` | unavailable | Yahoo Finance via yfinance (auto_adjust=False, group_by=ticker) | Yahoo publishes no delivery percentage. The delivery factor computes to an empty panel and is skipped with a warning rather than counted as a trial. |
 | `fii_dii_cash` | real | https://www.nseindia.com/api/fiidiiTradeReact | 1 sessions accumulated (2026-07-30..2026-07-30). NSE api/fiidiiTradeReact is CURRENT-DAY ONLY. This series is accumulated by running scripts/download_flows.py daily, so its span reflects how long the script has been run, not data availability. Units: Rs crores (cash market), unlike flows_daily which is in net futures contracts. |
 | `flow_features` | real | derived from flows_daily + participant_flows | DERIVED, read at store lag 0 because construction already shifts the underlying flow by one session. Expanding-window terciles and percentiles only; no full-sample quantiles. |
-| `flows_daily` | real | https://nsearchives.nseindia.com/content/nsccl/fao_participant_vol_DDMMYYYY.csv | 1871 sessions (2019-01-01..2026-07-30), derived from the cached fao_participant_vol archive. Units: NET FUTURES CONTRACTS, not cash rupees. |
-| `participant_flows` | real | https://nsearchives.nseindia.com/content/nsccl/fao_participant_vol_DDMMYYYY.csv | 1871 sessions (2019-01-01..2026-07-30), derived from the cached fao_participant_vol archive. Units: NET FUTURES CONTRACTS, not cash rupees. Categories: Client (retail proxy), DII, FII, Pro. |
-| `prices` | real | Yahoo Finance via yfinance (auto_adjust=False, group_by=ticker) | 500 symbols, 1875 sessions, 2019-01-01..2026-07-30. adj_factor = adj_close/close applied to open/high/low; volume left raw so turnover = close*volume is split-invariant. |
+| `flows_daily` | real | https://nsearchives.nseindia.com/content/nsccl/fao_participant_vol_DDMMYYYY.csv | 1897 sessions (2019-01-01..2026-09-04), derived from the cached fao_participant_vol archive. Units: NET FUTURES CONTRACTS, not cash rupees. |
+| `participant_flows` | real | https://nsearchives.nseindia.com/content/nsccl/fao_participant_vol_DDMMYYYY.csv | 1897 sessions (2019-01-01..2026-09-04), derived from the cached fao_participant_vol archive. Units: NET FUTURES CONTRACTS, not cash rupees. Categories: Client (retail proxy), DII, FII, Pro. |
+| `prices` | real | Yahoo Finance via yfinance (auto_adjust=False, group_by=ticker) | 500 symbols, 1901 sessions, 2019-01-01..2026-09-04. adj_factor = adj_close/close applied to open/high/low; volume left raw so turnover = close*volume is split-invariant. |
 | `sectors` | real | https://nsearchives.nseindia.com/content/indices/ind_nifty500list.csv | Industry classification from the same constituent file. This is a CURRENT snapshot, not point-in-time: a name reclassified since listing carries its present industry for its whole history. |
 | `shares_outstanding` | unavailable | Yahoo Finance via yfinance (auto_adjust=False, group_by=ticker) | Yahoo publishes no share count. Written as 1.0, which degrades the size factor to a log-PRICE proxy (named size_logprice_proxy), not log market cap. |
-| `trading_calendar` | real | derived from observed price dates | 1875 sessions derived from the price panel; weekdays in range with no trading (106) are treated as holidays. |
+| `trading_calendar` | real | derived from observed price dates | 1901 sessions derived from the price panel; weekdays in range with no trading (106) are treated as holidays. |
 | `universe` | real | https://nsearchives.nseindia.com/content/indices/ind_nifty500list.csv | NSE published NIFTY500 constituent list, 500 EQ symbols, CURRENT snapshot only |
 
 Dataset counts: 8 real, 0 synthetic, 2 unavailable.
