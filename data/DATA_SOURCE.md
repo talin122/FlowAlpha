@@ -7,7 +7,7 @@
 
 > !! LIVE DATA (PARTIAL: DELIVERY_PCT, SHARES_OUTSTANDING UNAVAILABLE): some inputs are missing, so the factors that depend on them are inert. See data/DATA_SOURCE.md.
 
-_Record last updated: 2026-09-09T06:22:47.512783+00:00_
+_Record last updated: 2026-09-09T07:39:20.544510+00:00_
 
 | dataset | status | source | note |
 | --- | --- | --- | --- |
@@ -16,11 +16,11 @@ _Record last updated: 2026-09-09T06:22:47.512783+00:00_
 | `flow_features` | real | derived from flows_daily + participant_flows | DERIVED, read at store lag 0 because construction already shifts the underlying flow by one session. Expanding-window terciles and percentiles only; no full-sample quantiles. |
 | `flows_daily` | real | https://nsearchives.nseindia.com/content/nsccl/fao_participant_vol_DDMMYYYY.csv | 1897 sessions (2019-01-01..2026-09-04), derived from the cached fao_participant_vol archive. Units: NET FUTURES CONTRACTS, not cash rupees. |
 | `participant_flows` | real | https://nsearchives.nseindia.com/content/nsccl/fao_participant_vol_DDMMYYYY.csv | 1897 sessions (2019-01-01..2026-09-04), derived from the cached fao_participant_vol archive. Units: NET FUTURES CONTRACTS, not cash rupees. Categories: Client (retail proxy), DII, FII, Pro. |
-| `prices` | real | Yahoo Finance via yfinance (auto_adjust=False, group_by=ticker) | 500 symbols, 1901 sessions, 2019-01-01..2026-09-04. adj_factor = adj_close/close applied to open/high/low; volume left raw so turnover = close*volume is split-invariant. |
+| `prices` | real | Yahoo Finance via yfinance (auto_adjust=False, group_by=ticker) | 498 symbols, 1901 sessions, 2019-01-01..2026-09-04. adj_factor = adj_close/close applied to open/high/low; volume left raw so turnover = close*volume is split-invariant. |
 | `sectors` | real | https://nsearchives.nseindia.com/content/indices/ind_nifty500list.csv | Industry classification from the same constituent file. This is a CURRENT snapshot, not point-in-time: a name reclassified since listing carries its present industry for its whole history. |
 | `shares_outstanding` | unavailable | Yahoo Finance via yfinance (auto_adjust=False, group_by=ticker) | Yahoo publishes no share count. Written as 1.0, which degrades the size factor to a log-PRICE proxy (named size_logprice_proxy), not log market cap. |
 | `trading_calendar` | real | derived from observed price dates | 1901 sessions derived from the price panel; weekdays in range with no trading (106) are treated as holidays. |
-| `universe` | real | https://nsearchives.nseindia.com/content/indices/ind_nifty500list.csv | NSE published NIFTY500 constituent list, 500 EQ symbols, CURRENT snapshot only |
+| `universe` | real | https://nsearchives.nseindia.com/content/indices/ind_nifty500list.csv | NSE published NIFTY500 constituent list, 499 EQ symbols, CURRENT snapshot only |
 
 Dataset counts: 8 real, 0 synthetic, 2 unavailable.
 

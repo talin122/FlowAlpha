@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-09-09T06:22:47.512783+00:00",
+  "updated_at": "2026-09-09T07:39:20.544510+00:00",
   "label": "LIVE DATA (PARTIAL: DELIVERY_PCT, SHARES_OUTSTANDING UNAVAILABLE)",
   "datasets": {
     "delivery_pct": {
@@ -30,7 +30,7 @@
     "prices": {
       "status": "real",
       "source": "Yahoo Finance via yfinance (auto_adjust=False, group_by=ticker)",
-      "note": "500 symbols, 1901 sessions, 2019-01-01..2026-09-04. adj_factor = adj_close/close applied to open/high/low; volume left raw so turnover = close*volume is split-invariant."
+      "note": "498 symbols, 1901 sessions, 2019-01-01..2026-09-04. adj_factor = adj_close/close applied to open/high/low; volume left raw so turnover = close*volume is split-invariant."
     },
     "sectors": {
       "status": "real",
@@ -50,7 +50,7 @@
     "universe": {
       "status": "real",
       "source": "https://nsearchives.nseindia.com/content/indices/ind_nifty500list.csv",
-      "note": "NSE published NIFTY500 constituent list, 500 EQ symbols, CURRENT snapshot only"
+      "note": "NSE published NIFTY500 constituent list, 499 EQ symbols, CURRENT snapshot only"
     }
   },
   "caveats": [

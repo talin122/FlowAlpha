@@ -11,7 +11,7 @@ that looks good because of a subtle look-ahead bug is worse than no result.
 **The headline result on real data is inconclusive, and that is a finding about the design
 rather than about the market.** No declared hypothesis is supported, but none of the three
 tests had the power to detect the effect it was looking for: the smallest difference the
-momentum test could reliably resolve is 2.1× momentum's entire unconditional IC. A
+momentum test could reliably resolve is 1.9× momentum's entire unconditional IC. A
 market-wide time-series regime test on 6½ years of NSE participant-flow data cannot answer
 this question at any threshold. See [Results](#results).
 
@@ -270,9 +270,9 @@ flipped.
 
 | hypothesis | IC fav | IC unfav | difference | t | MDE(80%) | ×uncond IC | power at ref | verdict |
 |---|---|---|---|---|---|---|---|---|
-| momentum, `fii_regime` high vs low | +0.0132 | +0.0255 | **−0.0123** | −0.81 | 0.0357 | 2.1× | 17.5% | INCONCLUSIVE |
-| `reversal_5d`, `retail_extreme` extreme vs mid | +0.0319 | +0.0233 | +0.0086 | +0.87 | 0.0231 | 0.8× | 47.0% | INCONCLUSIVE |
-| `reversal_21d`, `retail_extreme` extreme vs mid | +0.0091 | −0.0027 | +0.0117 | +1.14 | 0.0241 | 2.4× | 15.6% | INCONCLUSIVE |
+| momentum, `fii_regime` high vs low | +0.0170 | +0.0255 | **−0.0085** | −0.56 | 0.0354 | 1.9× | 18.7% | INCONCLUSIVE |
+| `reversal_5d`, `retail_extreme` extreme vs mid | +0.0319 | +0.0232 | +0.0087 | +0.89 | 0.0227 | 0.8× | 47.8% | INCONCLUSIVE |
+| `reversal_21d`, `retail_extreme` extreme vs mid | +0.0091 | −0.0030 | +0.0121 | +1.19 | 0.0237 | 2.4× | 15.6% | INCONCLUSIVE |
 
 **0 of 3 declared hypotheses supported at |t| ≥ 1.5. 0 of 3 are adequately powered nulls.
 3 of 3 are inconclusive. 0 of 3 conditional strategies beat their unconditional counterpart
@@ -280,8 +280,8 @@ on capacity-independent net Sharpe.**
 
 **This study does not establish that flow conditioning fails — it establishes that this
 sample cannot resolve the question.** Every observed difference is well inside the noise
-band. The smallest effect the momentum test could reliably detect is 0.0357, which is
-**2.1× momentum's entire unconditional IC**; the reversal_21d test needs 2.4×. An effect
+band. The smallest effect the momentum test could reliably detect is 0.0354, which is
+**1.9× momentum's entire unconditional IC**; the reversal_21d test needs 2.4×. An effect
 that large is not a plausible size for a real one, so those two hypotheses are not merely
 unproven here, they are untestable at this sample size.
 
@@ -296,9 +296,9 @@ Newey–West standard errors (`se ∝ n^-1/2`):
 
 | hypothesis | sessions used | needed | multiple | ≈ years |
 |---|---|---|---|---|
-| momentum × `fii_regime` | 1,181 | 20,218 | 17.1× | 81 |
-| `reversal_21d` × `retail_extreme` | 1,518 | 35,084 | 23.1× | 140 |
-| `reversal_5d` × `retail_extreme` | 1,518 | 4,097 | 2.7× | 16 |
+| momentum × `fii_regime` | 1,203 | 17,638 | 14.7× | 71 |
+| `reversal_21d` × `retail_extreme` | 1,542 | 35,366 | 22.9× | 141 |
+| `reversal_5d` × `retail_extreme` | 1,542 | 4,045 | 2.6× | 16 |
 
 Only `reversal_5d` is within reach of any feasible data-collection effort, and 16 years of
 daily participant-flow data does not exist — NSE's file begins in 2019. **A market-wide
@@ -308,7 +308,7 @@ a per-stock retail measure (bhavcopy `DELIV_PER`) turns ~1,500 regime observatio
 orders of magnitude more information. See [Known limitations](#known-limitations).
 
 Momentum's conditional IC is *directionally opposite* to the hypothesis — higher when FIIs
-are in their selling tercile (+0.026) than their buying tercile (+0.013) — but at 17.5%
+are in their selling tercile (+0.026) than their buying tercile (+0.017) — but at 18.7%
 power that sign carries no weight.
 
 The regime overlay does improve the composite's capacity-independent net Sharpe (+0.11 vs
